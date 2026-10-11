@@ -23,8 +23,15 @@
   .card .value { font-size: 20px; font-weight: 700; margin-top: 2px; }
   .card .delta { font-size: 11px; margin-top: 2px; }
   .up { color: #f87171; } .down { color: #4ade80; } .flat { color: #94a3b8; }
-  .chart-box { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 14px; }
-  canvas { width: 100%; height: 320px; display: block; }
+  .chart-box { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 14px; position: relative; }
+  canvas { width: 100%; height: 320px; display: block; cursor: crosshair; }
+  #tip {
+    position: absolute; display: none; background: rgba(15,23,42,.96);
+    border: 1px solid #334155; border-radius: 8px; padding: 7px 11px;
+    font-size: 12px; line-height: 1.7; pointer-events: none; z-index: 10;
+    box-shadow: 0 4px 14px rgba(0,0,0,.4); white-space: nowrap;
+  }
+  #tip .t-time { color: #64748b; }
   .legend { display: flex; gap: 16px; font-size: 12px; color: #94a3b8; margin-top: 10px; flex-wrap: wrap; }
   .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
   .foot { font-size: 11px; color: #475569; margin-top: 12px; line-height: 1.7; }
@@ -40,6 +47,7 @@
 
   <div class="chart-box">
     <canvas id="chart"></canvas>
+    <div id="tip"></div>
     <div class="legend">
       <span><i style="background:#3b82f6"></i>售出均价</span>
       <span><i style="background:#eab308"></i>回收最高价</span>
@@ -74,7 +82,7 @@ function parseCSV(text) {
   return rows.filter(r => r.dt && r.avg !== null);
 }
 
-function draw(rows) {
+function draw(rows, hover) {
   const cv = document.getElementById("chart");
   const dpr = window.devicePixelRatio || 1;
   const W = cv.clientWidth, H = cv.clientHeight;
@@ -141,6 +149,23 @@ function draw(rows) {
     ctx.beginPath(); ctx.moveTo(padL, Y(lmin)); ctx.lineTo(W - padR, Y(lmin)); ctx.stroke();
     ctx.setLineDash([]);
   }
+
+  // 悬停十字线 + 高亮圈
+  if (hover != null && rows[hover]) {
+    const hx = X(hover), r = rows[hover];
+    ctx.strokeStyle = "#475569"; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(hx, padT); ctx.lineTo(hx, H - padB); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1.5;
+    if (r.avg !== null) {
+      ctx.strokeStyle = "#3b82f6";
+      ctx.beginPath(); ctx.arc(hx, Y(r.avg), 6, 0, 7); ctx.stroke();
+    }
+    if (r.rec !== null) {
+      ctx.strokeStyle = "#eab308";
+      ctx.beginPath(); ctx.arc(hx, Y(r.rec), 6, 0, 7); ctx.stroke();
+    }
+  }
 }
 
 function cards(rows) {
@@ -169,8 +194,39 @@ fetch(CSV_URL + "?t=" + Date.now())
   .then(text => {
     const rows = parseCSV(text);
     if (rows.length < 2) throw new Error("数据不足");
-    cards(rows); draw(rows);
-    window.addEventListener("resize", () => draw(rows));
+    cards(rows);
+
+    // 鼠标悬停：十字线 + 当时价格提示框
+    const cv = document.getElementById("chart");
+    const tip = document.getElementById("tip");
+    let hoverIdx = null;
+    const render = () => draw(rows, hoverIdx);
+    cv.addEventListener("mousemove", e => {
+      const rect = cv.getBoundingClientRect();
+      const padL = 44, padR = 14;
+      const iw = rect.width - padL - padR;
+      const n = rows.length;
+      let i = Math.round((e.clientX - rect.left - padL) / (iw || 1) * (n - 1));
+      i = Math.max(0, Math.min(n - 1, i));
+      if (i !== hoverIdx) { hoverIdx = i; render(); }
+      const r = rows[i];
+      tip.innerHTML = `<div class="t-time">${r.dt}</div>` +
+        (r.avg !== null ? `<div><span style="color:#3b82f6;">●</span> 售出均价 <b>${r.avg.toFixed(2)}</b></div>` : "") +
+        (r.rec !== null ? `<div><span style="color:#eab308;">●</span> 回收最高 <b>${r.rec.toFixed(2)}</b></div>` : "") +
+        (r.min !== null ? `<div><span style="color:#64748b;">●</span> 最低挂单 <b>${r.min.toFixed(2)}</b></div>` : "");
+      tip.style.display = "block";
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let tx = e.clientX - rect.left + 14;
+      let ty = e.clientY - rect.top - th / 2;
+      if (tx + tw > rect.width - 2) tx = e.clientX - rect.left - tw - 14;
+      if (ty + th > rect.height) ty = rect.height - th - 2;
+      if (ty < 0) ty = 0;
+      tip.style.left = tx + "px";
+      tip.style.top = ty + "px";
+    });
+    cv.addEventListener("mouseleave", () => { hoverIdx = null; tip.style.display = "none"; render(); });
+    window.addEventListener("resize", render);
+    render();
   })
   .catch(e => {
     document.getElementById("cards").innerHTML =
