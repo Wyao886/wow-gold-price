@@ -189,8 +189,23 @@ function cards(rows) {
     `共 ${rows.length} 条历史记录 · 最新采集 ${last.dt} · 每天 07:09 / 12:09 / 18:09 自动更新（北京时间）`;
 }
 
-fetch(CSV_URL + "?t=" + Date.now())
-  .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+const CSV_SOURCES = [
+  "https://cdn.jsdelivr.net/gh/Wyao886/wow-gold-price@main/gold_price_history.csv",
+  "https://raw.githubusercontent.com/Wyao886/wow-gold-price/main/gold_price_history.csv",
+];
+
+function loadCSV() {
+  let chain = Promise.reject();
+  CSV_SOURCES.forEach(u => {
+    chain = chain.catch(() => fetch(u + "?t=" + Date.now()).then(r => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.text();
+    }));
+  });
+  return chain;
+}
+
+loadCSV()
   .then(text => {
     const rows = parseCSV(text);
     if (rows.length < 2) throw new Error("数据不足");
